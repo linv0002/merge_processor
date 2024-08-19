@@ -2,6 +2,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk, ImageDraw, ImageFilter, ImageChops
+import numpy as np
 
 
 class ImageProcessorApp(tk.Tk):
@@ -29,6 +30,8 @@ class ImageProcessorApp(tk.Tk):
         self.current_image = "Merged Image"  # Track which image is currently shown
         self.smoothing_var = tk.BooleanVar(value=False)  # Smoothing option checkbox variable
         self.feather_radius = tk.IntVar(value=3)  # Feather radius for smoothing effect
+        self.average_path_var = tk.BooleanVar(value=False)  # Variable for the Average Path checkbox
+        self.window_size_var = tk.IntVar(value=5)  # Default window size for averaging
         self.use_original_backup_var = tk.BooleanVar(value=True)  # Backup option for "Use Original" operation
 
         # Continuous advancement variables
@@ -121,6 +124,16 @@ class ImageProcessorApp(tk.Tk):
         self.process_button.pack(pady=5)
 
         # Skeletons for the rest of the buttons
+        # Average Path checkbox
+        self.average_path_checkbox = tk.Checkbutton(self.right_frame, text="Average Path",
+                                                    variable=self.average_path_var,
+                                                    command=self.toggle_window_size_entry)
+        self.average_path_checkbox.pack(pady=5)
+        self.average_path_checkbox.pack_forget()  # Hide the checkbox initially
+
+        # Window Size input box (initially hidden)
+        self.window_size_label = tk.Label(self.right_frame, text="Window Size:")
+        self.window_size_entry = tk.Entry(self.right_frame, textvariable=self.window_size_var, width=5)
         self.image_selector_label = tk.Label(self.right_frame, text="Select Image:")
         self.image_selector = ttk.Combobox(self.right_frame, textvariable=tk.StringVar(value="Merged Image"),
                                            values=["Merged Image", "Original Image"])
@@ -170,10 +183,16 @@ class ImageProcessorApp(tk.Tk):
             if self.smoothing_var.get():
                 self.feather_radius_label.pack(pady=5)
                 self.feather_radius_entry.pack(pady=5)
+            # Show the Average Path checkbox and input if applicable
+            self.average_path_checkbox.pack(pady=5)
+            if self.average_path_var.get():
+                self.window_size_label.pack(pady=5)
+                self.window_size_entry.pack(pady=5)
             self.backup_checkbox.pack(pady=5)
             self.save_button.pack(pady=5)
             self.use_original_button.pack(pady=5)
             self.use_original_backup_checkbox.pack(pady=5)
+
         else:
             self.image_selector_label.pack_forget()
             self.image_selector.pack_forget()
@@ -185,6 +204,10 @@ class ImageProcessorApp(tk.Tk):
             self.smoothing_checkbox.pack_forget()
             self.feather_radius_label.pack_forget()
             self.feather_radius_entry.pack_forget()
+            # Hide the Average Path checkbox and input
+            self.average_path_checkbox.pack_forget()
+            self.window_size_label.pack_forget()
+            self.window_size_entry.pack_forget()
             self.backup_checkbox.pack_forget()
             self.save_button.pack_forget()
             self.use_original_button.pack_forget()
@@ -199,6 +222,14 @@ class ImageProcessorApp(tk.Tk):
         else:
             self.feather_radius_label.pack_forget()
             self.feather_radius_entry.pack_forget()
+
+    def toggle_window_size_entry(self):
+        if self.average_path_var.get():
+            self.window_size_label.pack(pady=5)
+            self.window_size_entry.pack(pady=5)
+        else:
+            self.window_size_label.pack_forget()
+            self.window_size_entry.pack_forget()
 
     def adjust_canvas_zoom(self):
         zoom = self.canvas_zoom.get()
@@ -417,6 +448,11 @@ class ImageProcessorApp(tk.Tk):
     def finish_trace_unzoomed(self, event):
         self.traced_path.append(self.traced_path[0])  # Close the path
 
+        # Apply moving average smoothing if the checkbox is checked
+        if self.average_path_var.get():
+            window_size = self.window_size_var.get()
+            self.traced_path = self.smooth_path(self.traced_path, window_size)
+
         # Clear existing lines to prevent overlap
         for line_id in self.trace_line_ids:
             self.canvas.delete(line_id)
@@ -427,11 +463,16 @@ class ImageProcessorApp(tk.Tk):
             line_id = self.canvas.create_line(self.traced_path[i], self.traced_path[i + 1], fill='blue')
             self.trace_line_ids.append(line_id)
 
-        # Highlight the path in yellow
+        # Highlight the path in yellow (No changes here, as per your request)
         self.highlight_traced_path_unzoomed()
 
     def finish_trace_zoomed(self, event):
         self.traced_path.append(self.traced_path[0])  # Close the path
+
+        # Apply moving average smoothing if the checkbox is checked
+        if self.average_path_var.get():
+            window_size = self.window_size_var.get()
+            self.traced_path = self.smooth_path(self.traced_path, window_size)
 
         # Adjust the trace for zoomed mode
         adjusted_path = []
@@ -451,14 +492,27 @@ class ImageProcessorApp(tk.Tk):
             line_id = self.canvas.create_line(self.traced_path[i], self.traced_path[i + 1], fill='blue')
             self.trace_line_ids.append(line_id)
 
-        # Highlight the path in yellow
+        # Highlight the path in yellow (No changes here, as per your request)
         self.highlight_traced_path_zoomed()
 
     def highlight_traced_path_unzoomed(self):
-        # Use the same coordinates as the blue path to draw the yellow line
-        for i in range(len(self.traced_path) - 1):
+        # If Average Path is checked, smooth the path
+        if self.average_path_var.get():
+            window_size = self.window_size_var.get()
+            smoothed_path = self.smooth_path(self.traced_path, window_size)
+        else:
+            smoothed_path = self.traced_path
+
+        # Clear any previous yellow lines to prevent overlap
+        for line_id in self.trace_line_ids:
+            self.canvas.delete(line_id)
+
+        self.trace_line_ids.clear()
+
+        # Use the smoothed path (if applicable) to draw the yellow line
+        for i in range(len(smoothed_path) - 1):
             line_id = self.canvas.create_line(
-                self.traced_path[i], self.traced_path[i + 1],
+                smoothed_path[i], smoothed_path[i + 1],
                 fill='yellow', width=2
             )
             self.trace_line_ids.append(line_id)
@@ -544,6 +598,16 @@ class ImageProcessorApp(tk.Tk):
         smoothed_image = Image.composite(blended_image, image, feathered_mask)
 
         return smoothed_image
+
+    def smooth_path(self, path, window_size=5):
+        smoothed_path = []
+        for i in range(len(path)):
+            start = max(0, i - window_size // 2)
+            end = min(len(path), i + window_size // 2 + 1)
+            x_coords = [p[0] for p in path[start:end]]
+            y_coords = [p[1] for p in path[start:end]]
+            smoothed_path.append((int(np.mean(x_coords)), int(np.mean(y_coords))))
+        return smoothed_path
 
     def undo_last_action(self):
         if self.previous_image_state:
